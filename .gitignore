@@ -105,3 +105,6 @@ doc/html/
 *.img
 *.bin
 !fw_jump.bin
+
+### setup ###
+resource/
