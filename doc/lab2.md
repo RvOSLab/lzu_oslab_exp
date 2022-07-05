@@ -4,9 +4,9 @@
 
 本实验的 step by step 文档可以访问 [Code an OS Project](https://lzu-oslab.github.io/step_by_step_doc/)。
 
-## 目录结构
-
 这一节我们介绍中断的开启、控制、设备的驱动与管理以及其他相关的内容。
+
+## 目录结构
 
 从这一节开始，我们将对实验添加一定的目录结构，在这一节中所添加的目录结构如下：
 

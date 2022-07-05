@@ -4,6 +4,8 @@
 
 本实验的 step by step 文档可以访问 [Code an OS Project](https://lzu-oslab.github.io/step_by_step_doc/)。
 
+这一节我们主要完成 RISC-V 的基础认识、编程调试环境的部署与调试方法的学习。
+
 ## 实验环境配置
 
 ### 一键部署
