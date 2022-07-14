@@ -126,7 +126,7 @@ mem_test(): Passed
     - Lab1 中 `entry.s` 对应 Lab3 的文件为 `init/entry.s`
     - Lab1 中 `sbi.c` 对应 Lab3 的文件为 `lib/sbi.c`
 2. **根据上述解析、参考文档、代码注释与关联内容代码**，补全以下文件中的代码，使得系统启动后运行的物理内存测试可正常通过：
-    1. mm/memory.c 中的 `mem_init`, `free_page`, `get_free_page`, `memset` 函数
+    1. mm/memory.c 中的 `mem_init`, `free_page`, `get_free_page` 函数
     2. lib/string.c 中的 `memset` 函数
 3. 回答以下问题：
    1. 尝试访问 `0x80000xxx` 内存区，观察现象，分析访问不成功的原因。
