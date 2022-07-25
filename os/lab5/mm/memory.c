@@ -139,7 +139,6 @@ void free_page(uint64_t addr)
  */
 uint64_t get_free_page(void)
 {
-    /* fix warrning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*/
     size_t i = MAP_NR(HIGH_MEM) - 1;
     for (; i >= MAP_NR(LOW_MEM); --i) {
         if (mem_map[i] == 0) {
@@ -450,26 +449,25 @@ void un_wp_page(uint64_t *table_entry)
 }
 
 /**
- * @brief 取消某地址的写保护
+ * @brief 查找给定虚拟地址的页表项
  *
- * 地址必须合法，否则 panic
- *
- * @param addr 虚拟地址
+ * @param vaddr   虚拟地址
+ * @return 页表项的指针
+ * @note 不需要对齐
  */
-void write_verify(uint64_t addr)
-{
-    uint64_t vpns[3] = { GET_VPN1(addr), GET_VPN2(addr), GET_VPN3(addr) };
+uint64_t *get_pte(uint64_t vaddr) {
+    uint64_t vpns[3] = { GET_VPN1(vaddr), GET_VPN2(vaddr), GET_VPN3(vaddr) };
     uint64_t *page_table = pg_dir;
     for (size_t level = 0; level < 2; ++level) {
         uint64_t idx = vpns[level];
-        assert (page_table[idx],
-                "write_verify(): addr %p is not available", addr);
+        if (!(page_table[idx] & PAGE_VALID)) {
+            return NULL;
+        }
         page_table =
             (uint64_t *)VIRTUAL(GET_PAGE_ADDR(page_table[idx]));
     }
-    un_wp_page(&page_table[vpns[2]]);
+    return &page_table[vpns[2]];
 }
-
 
 /**
  * @brief 测试内存模块是否正常
