@@ -426,6 +426,27 @@ int copy_page_tables(uint64_t from, uint64_t *to_pg_dir, uint64_t to,
 }
 
 /**
+ * @brief 查找给定虚拟地址的页表项
+ *
+ * @param vaddr   虚拟地址
+ * @return 页表项的指针
+ * @note 不需要对齐
+ */
+uint64_t *get_pte(uint64_t vaddr) {
+    uint64_t vpns[3] = { GET_VPN1(vaddr), GET_VPN2(vaddr), GET_VPN3(vaddr) };
+    uint64_t *page_table = pg_dir;
+    for (size_t level = 0; level < 2; ++level) {
+        uint64_t idx = vpns[level];
+        if (!(page_table[idx] & PAGE_VALID)) {
+            return NULL;
+        }
+        page_table =
+            (uint64_t *)VIRTUAL(GET_PAGE_ADDR(page_table[idx]));
+    }
+    return &page_table[vpns[2]];
+}
+
+/**
  * @brief 取消页表项对应的页的写保护
  *
  * @param table_entry 页表项指针(虚拟地址)
@@ -446,27 +467,6 @@ void un_wp_page(uint64_t *table_entry)
     copy_page(VIRTUAL(old_page), VIRTUAL(new_page));
     *table_entry = (new_page >> 2) | GET_FLAG(*table_entry) | PAGE_WRITABLE;
     invalidate();
-}
-
-/**
- * @brief 查找给定虚拟地址的页表项
- *
- * @param vaddr   虚拟地址
- * @return 页表项的指针
- * @note 不需要对齐
- */
-uint64_t *get_pte(uint64_t vaddr) {
-    uint64_t vpns[3] = { GET_VPN1(vaddr), GET_VPN2(vaddr), GET_VPN3(vaddr) };
-    uint64_t *page_table = pg_dir;
-    for (size_t level = 0; level < 2; ++level) {
-        uint64_t idx = vpns[level];
-        if (!(page_table[idx] & PAGE_VALID)) {
-            return NULL;
-        }
-        page_table =
-            (uint64_t *)VIRTUAL(GET_PAGE_ADDR(page_table[idx]));
-    }
-    return &page_table[vpns[2]];
 }
 
 /**
