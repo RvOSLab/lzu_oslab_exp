@@ -1,26 +1,39 @@
-这一节，我们将创建进程 0
+# Lab5
 
-# 进程控制块
+本实验所需源码可从 [lzu_oslab_exp 仓库](https://git.neko.ooo/LZU-OSLab/lzu_oslab_exp) 下载。
+
+本实验的 step by step 文档可以访问 [Code an OS Project](https://lzu-oslab.github.io/step_by_step_doc/)。
+
+这一节，我们将涉及到进程 0 的创建、fork、进程调度与切换、特权级切换与系统调用等。
+
+## 进程控制块
 
 每个进程都有*进程控制块*（*Process Control Block*），这个数据结构包含描述、控制该进程的全部信息，如调度优先级、进程 ID 、处理器状态等。在本实验中，进程控制块被实现为结构体`struct task_struct`：
 
 ```c
-
 /** 进程控制块 PCB(Process Control Block) */
 struct task_struct {
+    uint32_t uid;  /* 用户ID */
+    uint32_t euid; /* 有效用户ID */
+    uint32_t suid; /* 保存的设置用户id */
+    uint32_t gid;  /* 组id */
+    uint32_t egid; /* 有效组id */
+    uint32_t sgid; /* 保存的设置组id */
+
     uint32_t exit_code;           /**< 返回码 */
     uint32_t pid;                 /**< 进程 ID */
     uint32_t pgid;                /**< 进程组 */
-    uint64_t start_code;          /**< 代码段起始地址 */
-    uint64_t start_rodata;        /**< 只读数据段起始地址 */
+    // uint64_t start_code;          /**< 代码段起始地址 */
+    // uint64_t start_rodata;        /**< 只读数据段起始地址 */
     uint64_t start_data;          /**< 数据段起始地址 */
     uint64_t end_data;            /**< 数据段结束地址 */
     uint64_t brk;                 /**< 堆结束地址 */
-    uint64_t start_stack;         /**< 堆起始地址 */
-    uint64_t start_kernel;        /**< 内核区起始地址 */
+    // uint64_t start_stack;         /**< 栈起始地址 */
+    // uint64_t start_kernel;        /**< 内核区起始地址 */
     uint32_t state;               /**< 进程调度状态 */
     uint32_t counter;             /**< 时间片大小 */
     uint32_t priority;            /**< 进程优先级 */
+    struct vfs_inode *fd[4];
     struct task_struct *p_pptr;   /**< 父进程 */
     struct task_struct *p_cptr;   /**< 子进程 */
     struct task_struct *p_ysptr;  /**< 创建时间最晚的兄弟进程 */
@@ -29,13 +42,18 @@ struct task_struct {
     uint32_t cutime,cstime;       /**< 进程及其子进程内核、用户态总耗时 */
     size_t start_time;            /**< 进程创建的时间 */
     uint64_t *pg_dir;             /**< 页目录地址 */
-    context context;              /**< 处理器状态 */
+    union {
+        struct {
+            uint64_t vaddr;         // 上次搜到了哪个虚拟地址
+        } clock_info;
+    } swap_info;
+    context context;              /**< 处理器状态，请把此成员放在 PCB 的最后 */
 };
 ```
 
-进程虚拟地址空间被划分为多个段，每段的起始结束不是固定的，`struct task_struct`中使用`start_code`等来记录各段虚拟地址空间范围。
+进程虚拟地址空间被划分为多个段，每段的起始结束不是固定的，`struct task_struct` 中使用 `start_data` 等来记录各段虚拟地址空间范围。
 
-PCB 中另外两个有重要意义的字段是`context`和`pg_dir`。`context`保存处理器状态，包括通用寄存器、stval、sstatus、sepc、badvaddr、scause 寄存器等。有了`context`，系统才能保存处理器状态，实现进程的切换。`pg_dir`指向进程的页目录，每个进程都有自己独占的进程树，这保证了不同的进程有布局相同但独立的进程地址空间。
+PCB 中另外两个有重要意义的字段是 `context` 和 `pg_dir`。`context` 保存处理器状态，包括通用寄存器、`stval`、`sstatus`、`sepc`、`badvaddr`、`scause` 寄存器等。有了`context`，系统才能保存处理器状态，实现进程的切换。`pg_dir` 指向进程的页目录，每个进程都有自己独占的页表，这保证了不同的进程有布局相同但独立的进程地址空间。
 
 `context`定义如下：
 
@@ -92,19 +110,28 @@ struct trapframe {
 };
 ```
 
-## 内核堆栈
+### 内核堆栈
 
-用户态进程有时需要调用内核的功能，这时进程会由用户态下沉到内核态，执行内核态的代码。为了避免用户态、内核态数据互相干扰导致错误，每个进程都会有自己的内核堆栈和用户堆栈。当进程在用户态运行时，当前堆栈为用户堆栈，切换到内核态时，堆栈也同时切换到内核堆栈。
+用户态进程有时需要调用内核的功能，这时进程会由用户态陷入到内核态，执行内核态的代码。为了避免用户态、内核态数据互相干扰导致错误，每个进程都会有自己的内核堆栈和用户堆栈。当进程在用户态运行时，当前堆栈为用户堆栈，切换到内核态时，堆栈也同时切换到内核堆栈。
 
-在本实验中，将内核堆栈和进程 PCB 放置在同一物理页。
+在本实验中，将内核堆栈和进程 PCB 放置在同一物理页，其中 PCB 从该页低地址往高地址填充，而内核栈从该页高地址往低地址扩张。
 
+```c
+/**
+ * @brief 进程数据结构占用的页
+ *
+ * 进程 PCB 和内核态堆栈共用一页。
+ * PCB 处于一页的低地址，内核态堆栈从页最高地址到低地址增长。
+ */
+union task_union {
+    struct task_struct task;                                  /**< 进程控制块 */
+    char stack[PAGE_SIZE];                                    /**< 内核态堆栈 */
+};
+```
 
+## 进程的创建
 
-# 进程的创建
-
-系统中的每个进程都由其父进程 fork 生成。内核在系统中处于核心地位，所有
-
-的进程归根到底都是内核创建的，因此把内核作为进程 0，进程 0 再 fork 出其他进程。进程 0 没有父进程，需要内核直接创建。
+系统中的每个进程都由其父进程 fork 生成。内核在系统中处于核心地位，所有的进程归根到底都是内核创建的，因此把内核作为进程 0，进程 0 再 fork 出其他进程。进程 0 没有父进程，需要内核直接创建。
 
 ```
 0xFFFFFFFF----->+--------------+

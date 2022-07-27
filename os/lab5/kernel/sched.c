@@ -22,6 +22,9 @@ struct task_struct* current = NULL;
 /** 系统所有进程的进程控制块指针数组 */
 struct task_struct* tasks[NR_TASKS];
 
+/** 用户栈最大 20M */
+uint64_t stack_size = 20 * (1 << 20); 
+
 /**
  * @brief 将进程处理器状态 context 压入进程内核堆栈
  *
@@ -62,11 +65,16 @@ void sched_init()
         .state = TASK_RUNNING,
         .counter = 15,
         .priority = 15,
-        .start_code = START_CODE,
-        .start_stack = START_STACK,
-        .start_kernel = START_KERNEL,
         .start_time = ticks /* 0 */,
+        // .start_code = START_CODE,
+        // .start_stack = START_STACK,
+        // .start_kernel = START_KERNEL,
+        // .start_rodata = (uint64_t)&rodata_start - (0xC0200000 - 0x00010000),
+        .start_data = (uint64_t)data_start - ((uint64_t)kernel_start - START_CODE),
+        .end_data = (uint64_t)kernel_end - ((uint64_t)kernel_start - START_CODE),
+        .brk = (uint64_t)kernel_end - ((uint64_t)kernel_start - START_CODE),
         .pg_dir = pg_dir,
+        .swap_info.clock_info.vaddr = START_CODE,
     };
 
     current = &init_task.task;
@@ -134,7 +142,7 @@ ret:
  *
  * @return 目标进程的进程号
  */
-size_t schedule()
+void schedule()
 {
     int i, next, c;
     struct task_struct** p;
@@ -165,7 +173,63 @@ size_t schedule()
             }
         }
     }
-    return next;
+    // kprintf("switch to %u\n", next);
+    switch_to(next);
+}
+
+static inline void __sleep_on(struct task_struct **p, int state)
+{
+	struct task_struct *tmp;
+
+	if (!p) {
+		return;
+	}
+	if (current == &(init_task.task)) {
+		panic("task[0] trying to sleep");
+	}
+	tmp = *p;
+	*p = current;
+	current->state = state;
+repeat:	schedule();
+	if (*p && *p != current) {
+		(**p).state = TASK_RUNNING;
+		current->state = TASK_UNINTERRUPTIBLE;
+		goto repeat;
+	}
+	if (!*p) {
+		kputs("Warning: *P = NULL\n\r");
+	}
+	if ((*p = tmp)) {
+		tmp->state = TASK_RUNNING;
+	}
+}
+
+void interruptible_sleep_on(struct task_struct **p)
+{
+	__sleep_on(p, TASK_INTERRUPTIBLE);
+}
+
+void sleep_on(struct task_struct **p)
+{
+	__sleep_on(p, TASK_UNINTERRUPTIBLE);
+}
+
+/**
+ * 唤醒不可中断等待任务
+ * @param 		p 		任务结构指针
+ * @return		void
+ */
+void wake_up(struct task_struct **p)
+{
+	if (p && *p) {
+		if ((**p).state == TASK_STOPPED) {
+			kputs("wake_up: TASK_STOPPED");
+		}
+		if ((**p).state == TASK_ZOMBIE) {
+			kputs("wake_up: TASK_ZOMBIE");
+		}
+		(**p).state = TASK_RUNNING;
+	}
 }
 
 /**
@@ -198,7 +262,7 @@ static void map_segment(uint64_t start, uint64_t end, uint16_t flag)
  *       但是实际上 sys_init() 被内核调用，并
  *       不是系统调用。
  */
-long sys_init(struct trapframe* tf)
+int64_t sys_init(struct trapframe* tf)
 {
     /* 创建指向内核代码/数据的用户态映射 */
     map_segment((uint64_t)text_start, (uint64_t)rodata_start, USER_RX | PAGE_VALID);
@@ -215,13 +279,9 @@ long sys_init(struct trapframe* tf)
     get_empty_page(START_STACK, USER_RW);
     invalidate();
     memcpy((void*)((uint64_t)START_STACK - PAGE_SIZE), (const void*)FLOOR(tf->gpr.sp), PAGE_SIZE);
-    tf->gpr.sp = START_STACK - ((uint64_t)boot_stack_top - tf->gpr.sp);
+    tf->gpr.sp += START_STACK - (uint64_t)boot_stack_top;
     /* GCC 使用 s0 指向函数栈帧起始地址（高地址），因此这里也要修改，否则切换到进程0会访问到内核区 */
-    tf->gpr.s0 = START_STACK;
-    current->start_rodata = (uint64_t)&rodata_start - (0xC0000000 - 0x00010000);
-    current->start_data = (uint64_t)&data_start - (0xC0000000 - 0x00010000);
-    current->end_data = (uint64_t)&kernel_end - (0xC0000000 - 0x00010000);
-    current->brk = (uint64_t)kernel_end - (0xC0000000 - 0x00010000);
+    tf->gpr.s0 += START_STACK - (uint64_t)boot_stack_top;
     save_context(tf);
     return 0;
 }

@@ -49,9 +49,7 @@
 /// @}
 
 /// @{ @name SSTATUS 寄存器标志位
-#define SSTATUS_UIE          0x00000001
 #define SSTATUS_SIE          0x00000002
-#define SSTATUS_UPIE         0x00000010
 #define SSTATUS_SPIE         0x00000020
 #define SSTATUS_SPP          0x00000100
 #define SSTATUS_FS           0x00006000
@@ -66,6 +64,8 @@
 #define SUPERVISOR 1
 #define MACHINE    2
 /// @}
+
+#define INST_LEN(inst_ptr) (((*(char*)(inst_ptr)) & 0x3) < 0x3 ? 2 : 4)
 
 /// @{ @name 操作控制状态寄存器（CSR）
 

@@ -27,3 +27,21 @@ void *memcpy(void *dest, const void *src, size_t n)
     }
     return ret;
 }
+
+int64_t strcmp(const char *s, const char *t)
+{
+    while (*s && *t && *s == *t) {
+        s++;
+        t++;
+    }
+    return *s - *t;
+}
+
+const char *strchr (const char *str, char c)
+{
+    while(*str) {
+        if (*str == c) return str;
+        str++;
+    }
+    return NULL;
+}

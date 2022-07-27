@@ -18,8 +18,8 @@
  */
 int copy_mem(struct task_struct * p)
 {
-    copy_page_tables(0, p->pg_dir, 0, current->start_kernel);
-    copy_page_tables(current->start_kernel, p->pg_dir, p->start_kernel, 0x100000000 - current->start_kernel);
+    copy_page_tables(0, p->pg_dir, 0, START_KERNEL);
+    copy_page_tables(START_KERNEL, p->pg_dir, START_KERNEL, 0x100000000 - START_KERNEL);
     return 1;
 }
 
@@ -51,7 +51,7 @@ static uint32_t find_empty_process()
 /**
  * @brief 实现系统调用 fork()
  */
-long sys_fork(struct trapframe *tf)
+int64_t sys_fork(struct trapframe *tf)
 {
     uint32_t nr = find_empty_process();
     if (nr == NR_TASKS) {
@@ -71,7 +71,7 @@ long sys_fork(struct trapframe *tf)
 
     memcpy(p, current, sizeof(struct task_struct) - sizeof(struct trapframe));
     p->context = *tf;
-    p->context.epc += 4;
+    p->context.epc += INST_LEN(p->context.epc);
     p->pg_dir = (uint64_t *)VIRTUAL(page_dir);
     tasks[nr] = p;
     kprintf("process %x forks process %x\n", (uint64_t)current->pid, (uint64_t)nr);

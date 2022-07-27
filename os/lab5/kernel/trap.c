@@ -23,7 +23,6 @@
 #include <plic.h>
 #include <uart.h>
 
-/** 时间片长度 */
 static inline struct trapframe* trap_dispatch(struct trapframe* tf);
 static struct trapframe* interrupt_handler(struct trapframe* tf);
 static struct trapframe* exception_handler(struct trapframe* tf);
@@ -57,7 +56,7 @@ static struct trapframe* external_handler(struct trapframe* tf)
 
 
 /**
- * @brief 设置 STVEC
+ * @brief 初始化中断
  * 设置 STVEC（中断向量表）的值为 __alltraps 的地址
  *
  * 在 SSTATUS 中启用 interrupt
@@ -67,10 +66,9 @@ void set_stvec()
 {
     /* 引入 trapentry.s 中定义的外部函数，便于下面取地址 */
     extern void __alltraps(void);
-    /* sscratch 保存内核栈地址 */
-    write_csr(sscratch, (char*)&init_task + PAGE_SIZE);
     /* 设置STVEC的值，MODE=00，因为地址的最后两位四字节对齐后必为0，因此不用单独设置MODE */
     write_csr(stvec, &__alltraps);
+    set_csr(sie, 1 << IRQ_S_EXT);
 }
 
 /**
@@ -116,19 +114,16 @@ struct trapframe* interrupt_handler(struct trapframe* tf)
     case IRQ_U_TIMER:
     case IRQ_S_TIMER:
         clock_set_next_event();
-        enable_interrupt(); /* 允许嵌套中断 */
+        // enable_interrupt(); /* 允许嵌套中断 */
         if (trap_in_kernel(tf)) {
             ++current->cstime;
         } else {
             ++current->cutime;
         }
-        if (--current->counter)
+        if (current->counter && --current->counter)
             return tf;
         if (!trap_in_kernel(tf)) {
-            size_t nr = schedule();
-            tasks[0]->counter = 15;
-            kprintf("switch to task %x\n", nr);
-            switch_to(nr);
+            schedule();
         }
 
         break;
@@ -180,7 +175,7 @@ struct trapframe* exception_handler(struct trapframe* tf)
     case CAUSE_BREAKPOINT:
         kputs("breakpoint");
         print_trapframe(tf);
-        tf->epc += 2;
+        tf->epc += INST_LEN(tf->epc);
         break;
     case CAUSE_MISALIGNED_LOAD:
         kputs("misaligned load");
@@ -255,7 +250,7 @@ static struct trapframe* syscall_handler(struct trapframe* tf)
     } else {
         tf->gpr.a0 = syscall_table[syscall_nr](tf);
     }
-    tf->epc += 4; /* 执行下一条指令 */
+    tf->epc += INST_LEN(tf->epc); /* 执行下一条指令 */
     return tf;
 }
 

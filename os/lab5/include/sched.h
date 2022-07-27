@@ -12,23 +12,25 @@
  * 0xC0000000----->---------------+
  *                 |    Hole      |
  * 0xBFFFFFF0----->---------------+
- *                 |    Stack     |
+ * (START_STACK)   |    Stack     |
  *                 |      +       |
  *                 |      |       |
  *                 |      v       |
  *                 |              |
- *                 |              |
+ *        brk----->+--------------+
  *                 |      ^       |
  *                 |      |       |
  *                 |      +       |
  *                 | Dynamic data |
- *        brk----->+--------------+
+ *   end_data----->+--------------+
  *                 |              |
- *                 | Static data  |
+ *                 |    .bss      |
+ *                 |    .data     |
  *                 |              |
- *                 +--------------+
+ * start_data----->+--------------+
  *                 |              |
- *                 |     Text     |
+ *                 |    .rodata   |
+ *                 |    .text     |
  *                 |              |
  * 0x00010000----->---------------+
  *                 |   Reserved   |
@@ -66,19 +68,27 @@ typedef struct trapframe context;                             /**< 处理器上�
 
 /** 进程控制块 PCB(Process Control Block) */
 struct task_struct {
+    uint32_t uid;  /* 用户ID */
+    uint32_t euid; /* 有效用户ID */
+    uint32_t suid; /* 保存的设置用户id */
+    uint32_t gid;  /* 组id */
+    uint32_t egid; /* 有效组id */
+    uint32_t sgid; /* 保存的设置组id */
+
     uint32_t exit_code;           /**< 返回码 */
     uint32_t pid;                 /**< 进程 ID */
     uint32_t pgid;                /**< 进程组 */
-    uint64_t start_code;          /**< 代码段起始地址 */
-    uint64_t start_rodata;        /**< 只读数据段起始地址 */
+    // uint64_t start_code;          /**< 代码段起始地址 */
+    // uint64_t start_rodata;        /**< 只读数据段起始地址 */
     uint64_t start_data;          /**< 数据段起始地址 */
     uint64_t end_data;            /**< 数据段结束地址 */
     uint64_t brk;                 /**< 堆结束地址 */
-    uint64_t start_stack;         /**< 堆起始地址 */
-    uint64_t start_kernel;        /**< 内核区起始地址 */
+    // uint64_t start_stack;         /**< 栈起始地址 */
+    // uint64_t start_kernel;        /**< 内核区起始地址 */
     uint32_t state;               /**< 进程调度状态 */
     uint32_t counter;             /**< 时间片大小 */
     uint32_t priority;            /**< 进程优先级 */
+    struct vfs_inode *fd[4];
     struct task_struct *p_pptr;   /**< 父进程 */
     struct task_struct *p_cptr;   /**< 子进程 */
     struct task_struct *p_ysptr;  /**< 创建时间最晚的兄弟进程 */
@@ -87,7 +97,12 @@ struct task_struct {
     uint32_t cutime,cstime;       /**< 进程及其子进程内核、用户态总耗时 */
     size_t start_time;            /**< 进程创建的时间 */
     uint64_t *pg_dir;             /**< 页目录地址 */
-    context context;              /**< 处理器状态 */
+    union {
+        struct {
+            uint64_t vaddr;         // 上次搜到了哪个虚拟地址
+        } clock_info;
+    } swap_info;
+    context context;              /**< 处理器状态，请把此成员放在 PCB 的最后 */
 };
 
 /**
@@ -105,8 +120,9 @@ struct task_struct {
     write_csr(scause, CAUSE_USER_ECALL);                                    \
     clear_csr(sstatus, SSTATUS_SPP);                                        \
     set_csr(sstatus, SSTATUS_SPIE);                                         \
-    set_csr(sstatus, SSTATUS_UPIE);                                         \
+    clear_csr(sstatus, SSTATUS_SIE);                                        \
     write_csr(sepc, &&ret - 4 - (SBI_END + LINEAR_OFFSET - START_CODE));    \
+    write_csr(sscratch, (char*)&init_task + PAGE_SIZE);                     \
     register uint64_t a7 asm("a7") = 0;                                     \
     __asm__ __volatile__("call __alltraps \n\t" ::"r"(a7):"memory");        \
     ret: ;                                                                  \
@@ -126,10 +142,16 @@ union task_union {
 extern struct task_struct *current;
 extern struct task_struct *tasks[NR_TASKS];
 extern union task_union init_task;
+extern uint64_t stack_size;
 
 void sched_init();
-size_t schedule();
+void schedule();
 void save_context(context *context);
 context* push_context(char *stack, context *context);
 void switch_to(size_t task);
+void interruptible_sleep_on(struct task_struct **p);
+void sleep_on(struct task_struct **p);
+void wake_up(struct task_struct **p);
+
+
 #endif /* end of include guard: __SCHED_H__ */
