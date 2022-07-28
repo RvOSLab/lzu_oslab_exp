@@ -44,6 +44,8 @@
 #include <trap.h>
 #include <riscv.h>
 #include <kdebug.h>
+#include <utils/schedule_queue.h>
+#include <kdebug.h> // for print_schedule_queue()
 
 #define NR_TASKS             512                              /**< 系统最大进程数 */
 
@@ -62,6 +64,12 @@
 #define START_CODE 0x10000                                    /**< 代码段起始地址 */
 #define START_STACK 0xBFFFFFF0                                /**< 堆起始地址（最高地址处） */
 #define START_KERNEL 0xC0000000                               /**< 内核区起始地址 */
+/// @}
+
+/// @{ 优先级设定的 which 种类
+#define PRIO_PROCESS    0   //进程
+#define PRIO_PGRP   1   //进程组
+#define PRIO_USER   2   //用户进程
 /// @}
 
 typedef struct trapframe context;                             /**< 处理器上下文 */
@@ -152,6 +160,44 @@ void switch_to(size_t task);
 void interruptible_sleep_on(struct task_struct **p);
 void sleep_on(struct task_struct **p);
 void wake_up(struct task_struct **p);
+void exit_process(size_t task, uint32_t exit_code);
+void do_exit(uint32_t exit_code);
+int64_t do_setpriority(int64_t which,int64_t who,int64_t niceval);
 
+/**
+ * 打印当前调度队列
+ */
+static inline void print_schedule_queue()
+{
+    struct linked_list_node *node;
+    for_each_linked_list_node(node, &schedule_queue.list_node)
+    {
+        struct schedule_queue_node *schedule_queue = container_of(node, struct schedule_queue_node, list_node);
+        kprintf("%u->", schedule_queue->task->pid);
+    }
+    kprintf("\n");
+}
+
+
+/**
+ * 弹出调度队列中第一个优先级为 n 的有时间片进程，没找到返回 NULL
+ */
+static inline struct task_struct *pop_priority_process(uint64_t prio)
+{
+    struct linked_list_node *node;
+    struct task_struct *return_process = NULL;
+    for_each_linked_list_node(node, &schedule_queue.list_node)
+    {
+        struct schedule_queue_node *cur_node = container_of(node, struct schedule_queue_node, list_node);
+        if (cur_node->task->priority == prio && cur_node->task->counter > 0)
+        {
+            return_process = cur_node->task;
+            linked_list_remove(node);
+            kfree(cur_node);
+            break;
+        }
+    }
+    return return_process;
+}
 
 #endif /* end of include guard: __SCHED_H__ */

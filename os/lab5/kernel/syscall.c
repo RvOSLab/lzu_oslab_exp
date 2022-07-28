@@ -62,8 +62,24 @@ static int64_t sys_getppid(struct trapframe *tf)
  */
 static int64_t sys_char(struct trapframe *tf)
 {
-    kputchar(tf->gpr.a0);
-	return 0;
+    if (tf->gpr.a0)
+        kputchar(tf->gpr.a0);
+    else
+        return sbi_console_getchar();
+    return 0;
+}
+
+/**
+ * @brief 系统调用：进程退出
+ */
+static int64_t sys_exit(struct trapframe *tf)
+{
+    do_exit(tf->gpr.a0);
+    return 0;
+}
+
+static int64_t sys_setpriority(struct trapframe *tf){
+    return do_setpriority(tf->gpr.a0, tf->gpr.a1, tf->gpr.a2);
 }
 
 /**
@@ -71,7 +87,7 @@ static int64_t sys_char(struct trapframe *tf)
  * 存储所有系统调用的指针的数组，系统调用号是其中的下标。
  * 所有系统调用都通过系统调用表调用
  */
-fn_ptr syscall_table[] = {sys_init, sys_fork, sys_test_fork, sys_getpid, sys_getppid, sys_char};
+fn_ptr syscall_table[] = {sys_init, sys_fork, sys_test_fork, sys_getpid, sys_getppid, sys_char, sys_exit, sys_setpriority};
 
 /**
  * @brief 通过系统调用号调用对应的系统调用

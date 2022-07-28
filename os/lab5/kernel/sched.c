@@ -13,6 +13,11 @@
 #include <trap.h>
 extern void boot_stack_top(void); /** 启动阶段内核堆栈最高地址处 */
 
+static void fcfs_schedule();
+static void rr_schedule();
+static void priority_schedule();
+static void feedback_schedule();
+
 /** 进程 0 */
 union task_union init_task;
 
@@ -78,6 +83,8 @@ void sched_init()
     };
 
     current = &init_task.task;
+
+    schedule_queue_init();
 }
 
 /**
@@ -100,11 +107,48 @@ void switch_to(size_t task)
         return;
     }
 
-
-    register uint64_t t0 asm("t0") = (uint64_t)&current->context;
+    uint64_t is_disable = read_csr(sstatus) & SSTATUS_SIE;
+    disable_interrupt();
+    register uint64_t t0 asm("t0");
+    write_csr(sscratch, t0);
+    t0 = (uint64_t)&current->context;
     __asm__ __volatile__ (
+            "sd zero, 0(%0)\n\t"
+            "sd ra, 8(%0)\n\t"
             "sd sp, 16(%0)\n\t"
+            "sd gp, 24(%0)\n\t"
+            "sd tp, 32(%0)\n\t"
+            "sd t1, 48(%0)\n\t"
+            "mv t1, t0\n\t"
+            "mv t0, zero\n\t"
+            "csrrw t0, sscratch, t0\n\t"
+            "sd t0, 40(t1)\n\t"
+            "mv t0, t1\n\t"
+            "sd t2, 56(%0)\n\t"
             "sd s0, 64(%0)\n\t"
+            "sd s1, 72(%0)\n\t"
+            "sd a0, 80(%0)\n\t"
+            "sd a1, 88(%0)\n\t"
+            "sd a2, 96(%0)\n\t"
+            "sd a3, 104(%0)\n\t"
+            "sd a4, 112(%0)\n\t"
+            "sd a5, 120(%0)\n\t"
+            "sd a6, 128(%0)\n\t"
+            "sd a7, 136(%0)\n\t"
+            "sd s2, 144(%0)\n\t"
+            "sd s3, 152(%0)\n\t"
+            "sd s4, 160(%0)\n\t"
+            "sd s5, 168(%0)\n\t"
+            "sd s6, 176(%0)\n\t"
+            "sd s7, 184(%0)\n\t"
+            "sd s8, 192(%0)\n\t"
+            "sd s9, 200(%0)\n\t"
+            "sd s10, 208(%0)\n\t"
+            "sd s11, 216(%0)\n\t"
+            "sd t3, 224(%0)\n\t"
+            "sd t4, 232(%0)\n\t"
+            "sd t5, 240(%0)\n\t"
+            "sd t6, 248(%0)\n\t"
             "csrr t1, sstatus\n\t"
             "sd t1, 256(%0)\n\t"
             "csrr t1, stval\n\t"
@@ -131,6 +175,7 @@ void switch_to(size_t task)
     }
     __trapret(push_context(stack, &current->context));
 ret:
+    set_csr(sstatus, is_disable);
     return;
 }
 
@@ -144,40 +189,124 @@ ret:
  */
 void schedule()
 {
-    int i, next, c;
-    struct task_struct** p;
+    fcfs_schedule();
+}
 
-    while (1) {
-        c = -1;
-        next = 0;
-        i = NR_TASKS;
-        p = &tasks[NR_TASKS];
-        while (--i) {
-            if (!*--p)
-                continue;
-            /* 小心混用无符号数和有符号数！ */
-            if ((*p)->state == TASK_RUNNING && (int32_t)(*p)->counter > c) {
-                c = (*p)->counter;
-                next = i;
-            }
-        }
-
-        /* 没有用户进程 */
-        if (c)
-            break;
-
-        /* 所有可运行的进程都耗尽了时间片 */
-        for (p = &LAST_TASK; p > &FIRST_TASK; --p) {
-            if (*p) {
-                (*p)->counter = ((*p)->counter >> 1) + (*p)->priority;
-            }
+static void fcfs_schedule()
+{
+    if(current){
+        if(!(current->state == TASK_RUNNING) || (current->pid == 0)){
+            struct task_struct *next_process = pop_first_process();
+            uint64_t next = next_process ? next_process->pid : 0; // 队列中无进程可调时才调度进程 0
+            kprintf("switch to %u\n", next);
+            switch_to(next);
+        } else {
+            current->counter = 4294967295;
         }
     }
-    // kprintf("switch to %u\n", next);
+}
+
+static void rr_schedule()
+{
+    if (current){
+        if (current->state == TASK_RUNNING && current->pid){
+            push_process_to_schedule_queue(current); // 将当前进程放入队尾
+        }
+    }
+    struct task_struct *next_process = pop_first_process();
+    uint64_t next = next_process ? next_process->pid : 0; // 队列中无进程可调时才调度进程 0
+    kprintf("switch to %u\n", next);
     switch_to(next);
 }
 
-static inline void __sleep_on(struct task_struct **p, int state)
+static void priority_schedule()
+{
+    if (current)
+    {
+        if (current->state == TASK_RUNNING)
+        {
+            /* 若是正常运行被调出，则重设时间片 */
+            current->counter = (current->priority) + 1;
+            if (current->pid)
+                push_process_to_schedule_queue(current); // 将当前进程放入队尾
+        }
+    }
+
+    struct task_struct *next_process = NULL;
+    for (uint64_t prio = 0; prio < 16; prio++)
+    {
+        if ((next_process = pop_priority_process(prio)))
+            break;
+    }
+
+    uint64_t next = next_process ? next_process->pid : 0; // 还是没有找到合适进程，队列中无进程可调时才调度进程 0
+    kprintf("switch to %u with priority %u\n", next, next_process ? next_process->priority : init_task.task.priority);
+    switch_to(next);
+}
+
+static void feedback_schedule()
+{
+    if (current)
+    {
+        if (current->state == TASK_RUNNING)
+        {
+            /* 若是正常运行被调出，则降低当前进程优先级，重设时间片 */
+            if (current->priority < 16)
+            {
+                ++current->priority;
+                current->counter = (current->priority) + 1;
+            }
+            if (current->pid)
+            {
+                push_process_to_schedule_queue(current); // 将当前进程放入队尾
+            }
+        }
+    }
+
+    struct task_struct *next_process = NULL;
+    /* 第一轮查找 */
+    for (uint64_t prio = 0; prio < 16; prio++)
+    {
+        if ((next_process = pop_priority_process(prio)))
+            break;
+    }
+
+    /* 所有可运行的进程都（在最低优先级）耗尽了时间片 */
+    if (!next_process)
+    {
+        /* 所有进程恢复最高优先级与时间片 */
+        kprintf("all processes are running out of time slices.\nresuming time slices and set to priority 0...\n");
+        for (uint64_t i = 0; i < NR_TASKS; i++)
+        {
+            if (tasks[i])
+            {
+                tasks[i]->priority = 0;
+                tasks[i]->counter = 1 + tasks[i]->priority;
+            }
+        }
+        /* 再次查找进程 */
+        for (uint64_t prio = 0; prio < 16; prio++)
+        {
+            if ((next_process = pop_priority_process(prio)))
+                break;
+        }
+    }
+
+    uint64_t next = next_process ? next_process->pid : 0; // 还是没有找到合适进程，队列中无进程可调时才调度进程 0
+    kprintf("switch to %u with priority %u\n", next, next_process ? next_process->priority : init_task.task.priority);
+    switch_to(next);
+}
+
+
+/**
+ * @brief 把current任务置为可中断/不可中断的睡眠状态，并让睡眠队列头指针指向当前任务。
+ * 
+ * @param p 等待任务队列头指针
+ * @param state 睡眠状态，TASK_UNINTERRUPTIBLE 或 TASK_INTERRUPTIBLE
+ * TASK_UNINTERRUPTIBLE状态的进程需要内核程序利用 wake_up()函数明确唤醒
+ * TASK_INTERRUPTIBLE的任务可以通过信号、任务超时等唤醒（置为TASK_RUNNING）
+*/
+static inline void __sleep_on(struct task_struct **p, uint32_t state)
 {
 	struct task_struct *tmp;
 
@@ -190,6 +319,7 @@ static inline void __sleep_on(struct task_struct **p, int state)
 	tmp = *p;
 	*p = current;
 	current->state = state;
+    delete_process_from_schedule_queue(current);
 repeat:	schedule();
 	if (*p && *p != current) {
 		(**p).state = TASK_RUNNING;
@@ -229,6 +359,7 @@ void wake_up(struct task_struct **p)
 			kputs("wake_up: TASK_ZOMBIE");
 		}
 		(**p).state = TASK_RUNNING;
+        push_process_to_schedule_queue(*p);
 	}
 }
 
@@ -284,4 +415,59 @@ int64_t sys_init(struct trapframe* tf)
     tf->gpr.s0 += START_STACK - (uint64_t)boot_stack_top;
     save_context(tf);
     return 0;
+}
+
+/**
+ * @brief 进程退出
+ *
+ * 退出进程号为 task 的进程
+ * @see kill()
+ */
+
+void exit_process(size_t task, uint32_t exit_code)
+{
+    for (int32_t i = NR_TASKS - 1; i > -1; i--)
+        if (tasks[i] && tasks[i]->pid == task)
+        {
+            tasks[i]->state = TASK_ZOMBIE;
+            tasks[i]->exit_code = exit_code;
+            kprintf("process %u exited.\n", task);
+            schedule(); // 最后让内核重新调度任务运行。
+        }
+}
+
+void do_exit(uint32_t exit_code)
+{
+    exit_process(current->pid, exit_code);
+}
+
+/**
+ * @brief 设置进程优先级
+ *
+ * 暂时只支持 which 为 PRIO_PROCESS，且没有root用户权限检测
+ */
+int64_t do_setpriority(int64_t which, int64_t who, int64_t niceval)
+{
+    if (which == PRIO_PROCESS)
+    {
+        if (who == 0)
+        {
+            current->priority = niceval;
+            kprintf("set the priority of process %u to %u.\n", current->pid, current->priority);
+            return 0;
+        }
+        else
+        {
+            for (uint64_t i = 0; i < NR_TASKS; i++)
+            {
+                if (tasks[i] && tasks[i]->pid == who)
+                {
+                    tasks[i]->priority = niceval;
+                    kprintf("set the priority of process %u to %u.\n", tasks[i]->pid, tasks[i]->priority);
+                    return 0;
+                }
+            }
+        }
+    }
+    return -1;
 }

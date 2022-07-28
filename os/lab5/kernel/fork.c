@@ -91,5 +91,6 @@ int64_t sys_fork(struct trapframe *tf)
     current->p_cptr = p;
     p->context.gpr.a0 = 0; /* 新进程 fork() 返回值 */
     p->state= TASK_RUNNING;
+    push_process_to_schedule_queue(p);
     return nr;
 }

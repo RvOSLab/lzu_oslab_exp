@@ -4,7 +4,7 @@
 
 本实验的 step by step 文档可以访问 [Code an OS Project](https://lzu-oslab.github.io/step_by_step_doc/)。
 
-这一节，我们将涉及到进程 0 的创建、fork、进程调度与切换、特权级切换与系统调用等。
+这一节，我们将涉及到特权级切换、进程 0 的创建、fork、进程调度与切换、系统调用、进程睡眠与唤醒等。
 
 ## 进程控制块
 
