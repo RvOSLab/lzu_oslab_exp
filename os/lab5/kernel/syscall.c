@@ -71,12 +71,6 @@ static int64_t sys_char(struct trapframe *tf)
         while(recv_char == 0xff) {
             recv_char = sbi_console_getchar();
         }
-        // NOTE: 由于输入设备限制, 回车收到的字符只有'\r'
-        if (recv_char == '\r') kputchar(recv_char = '\n');
-        // NOTE: 对格式控制字符显示'^'
-        if (recv_char == '\e') kputchar('^');
-        // 回显输入的可打印字符
-        if (recv_char > 0x1F && recv_char != '\x7F') kputchar(recv_char);
         return recv_char;
     }
     return 0;

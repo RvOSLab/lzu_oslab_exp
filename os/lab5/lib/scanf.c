@@ -1,5 +1,70 @@
 #include <lib/stdio.h>
 
+/* stdin缓冲区 */
+#define STDIN_BUFFER_SIZE 128
+char stdin_buffer[STDIN_BUFFER_SIZE];
+uint64_t stdin_buffer_start;
+uint64_t stdin_buffer_end;
+
+#define stdin_init() {                                               \
+    stdin_buffer_start = stdin_buffer_end = 0;                       \
+}
+
+#define stdin_drain() (stdin_buffer_start == stdin_buffer_end)
+#define stdin_full() ({                                              \
+    uint64_t tmp_end = (stdin_buffer_end + 1) % STDIN_BUFFER_SIZE;   \
+    tmp_end == stdin_buffer_start;                                   \
+})
+
+/* stdin操作函数 */
+#define stdin_line_to_buffer() {                                     \
+    char recv_char;                                                  \
+    do {                                                             \
+        recv_char = (uint8_t) syscall(NR_char, 0);                   \
+        if (recv_char == '\r') put_char(recv_char = '\n');           \
+        if (recv_char == '\x7f') {                                   \
+            if (!stdin_drain()) {                                    \
+                stdin_buffer_end += STDIN_BUFFER_SIZE;               \
+                stdin_buffer_end -= 1;                               \
+                stdin_buffer_end %= STDIN_BUFFER_SIZE;               \
+                puts("\b\e[K");                                      \
+            }                                                        \
+        } else {                                                     \
+            if (recv_char == '\e') put_char('^');                    \
+            if (recv_char > 0x1f) put_char(recv_char);               \
+            stdin_buffer[stdin_buffer_end] = recv_char;              \
+            stdin_buffer_end += 1;                                   \
+            stdin_buffer_end %= STDIN_BUFFER_SIZE;                   \
+        }                                                            \
+    } while (recv_char != '\n' && !stdin_full());                    \
+}
+
+#define stdin_take() ({                                              \
+    if (stdin_drain()) {                                             \
+        stdin_line_to_buffer();                                      \
+    }                                                                \
+    stdin_buffer[stdin_buffer_start];                                \
+})
+
+#define stdin_consume() ({                                           \
+    char recv_char = stdin_buffer[stdin_buffer_start];               \
+    stdin_buffer_start += 1;                                         \
+    stdin_buffer_start %= STDIN_BUFFER_SIZE;                         \
+    recv_char;                                                       \
+})
+
+/* get_char实现 */
+#define get_char() ({                                                \
+    char recv_char;                                                  \
+    if (stdin_drain()) {                                             \
+        recv_char = (uint8_t) syscall(NR_char, 0);                   \
+        stdin_buffer[stdin_buffer_end] = recv_char;                  \
+        stdin_buffer_end += 1;                                       \
+        stdin_buffer_end %= STDIN_BUFFER_SIZE;                       \
+    }                                                                \
+    stdin_consume();                                                 \
+})
+
 /* 状态机相关宏定义 */
 #define STATE_MACHINE(state_var) switch (state_var) {
 #define END_STATE_MACHINE() \
@@ -64,14 +129,11 @@ enum format_parse_state {
 })
 
 /* 输入相关宏定义 */
-#define input_read_char() ({ \
-    if (input_next_char == 0x100) {        \
-        input_next_char = get_char();     \
-    }                                      \
-    (char)input_next_char;                 \
+#define input_read_char() ({               \
+    stdin_take();                          \
 })
-#define input_consume_char() { \
-    input_next_char = 0x100;               \
+#define input_consume_char() {             \
+    stdin_consume();                       \
     used_char_num += 1;                    \
 }
 
@@ -256,9 +318,6 @@ int scanf(const char *format_str, ...) {
     const char *format_str_ptr = format_str;
     int used_char_num = 0;
     int parse_state = NORMAL_CHAR;
-
-    /* 输入缓冲区(0x100表示缓冲区为空) */
-    int input_next_char = 0x100;
 
     /* 格式化参数 */
     int skip_set_ptr = 0;      // 没有对应的指针保存数据
