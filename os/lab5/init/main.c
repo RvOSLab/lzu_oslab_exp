@@ -5,6 +5,7 @@
 #include <sched.h>
 #include <clock.h>
 #include <syscall.h>
+#include <lib/sleep.h>
 
 int main()
 {
@@ -18,11 +19,13 @@ int main()
     clock_init();
     kputs("Hello LZU OS");
     enable_interrupt();
+    usleep_queue_init();
+
     init_task0();
     syscall(NR_fork);    /* task 0 creates task 1 */
     syscall(NR_fork);    /* task 0 creates task 2, task 1 creates task 3 */
-    long local = syscall(NR_getpid);
-    syscall(NR_test_fork, local);
+    long pid = syscall(NR_getpid);
+    syscall(NR_test_fork, pid);
 
     // fcfs test
     /**
@@ -66,6 +69,13 @@ int main()
         syscall(NR_exit);
     }
     */
+   if (pid) {
+        uint64_t sleep_time = 0;
+        printf("[main@pid = %u] sleep time(us) > ", pid);
+        scanf("%u", &sleep_time);
+        syscall(NR_usleep, sleep_time);
+        printf("[main@pid = %u] wake after %u us\n", pid, sleep_time);
+   }
 
     while (1)
         ; /* infinite loop */
