@@ -58,14 +58,24 @@ static int64_t sys_getppid(struct trapframe *tf)
 }
 
 /**
- * @brief 输出一个字符
+ * @brief 输入或输出一个字符
  */
 static int64_t sys_char(struct trapframe *tf)
 {
-    if (tf->gpr.a0)
+    if (tf->gpr.a0) {
         kputchar(tf->gpr.a0);
-    else
-        return sbi_console_getchar();
+    }
+    else {
+        char recv_char = 0xff;
+        while(recv_char == 0xff) {
+            recv_char = sbi_console_getchar();
+        }
+        // NOTE: 由于lab5限制, 回车收到的字符只有'\r'
+        if (recv_char == '\r') kputchar(recv_char = '\n');
+        // 回显输入的可打印字符
+        if (recv_char > 0x1F) kputchar(recv_char);
+        return recv_char;
+    }
     return 0;
 }
 
@@ -83,11 +93,19 @@ static int64_t sys_setpriority(struct trapframe *tf){
 }
 
 /**
+ * @brief usleep 一段时间（微秒）
+ */
+static int64_t sys_usleep(struct trapframe *tf)
+{
+    return usleep_set((int64_t)tf->gpr.a0);
+}
+
+/**
  * @brief 系统调用表
  * 存储所有系统调用的指针的数组，系统调用号是其中的下标。
  * 所有系统调用都通过系统调用表调用
  */
-fn_ptr syscall_table[] = {sys_init, sys_fork, sys_test_fork, sys_getpid, sys_getppid, sys_char, sys_exit, sys_setpriority};
+fn_ptr syscall_table[] = {sys_init, sys_fork, sys_test_fork, sys_getpid, sys_getppid, sys_char, sys_exit, sys_setpriority, sys_usleep};
 
 /**
  * @brief 通过系统调用号调用对应的系统调用

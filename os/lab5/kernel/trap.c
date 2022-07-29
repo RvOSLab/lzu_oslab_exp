@@ -22,6 +22,7 @@
 #include <trap.h>
 #include <plic.h>
 #include <uart.h>
+#include <lib/sleep.h>
 
 static inline struct trapframe* trap_dispatch(struct trapframe* tf);
 static struct trapframe* interrupt_handler(struct trapframe* tf);
@@ -114,6 +115,7 @@ struct trapframe* interrupt_handler(struct trapframe* tf)
     case IRQ_U_TIMER:
     case IRQ_S_TIMER:
         clock_set_next_event();
+        usleep_handler();
         // enable_interrupt(); /* 允许嵌套中断 */
         if (trap_in_kernel(tf)) {
             ++current->cstime;
@@ -125,7 +127,6 @@ struct trapframe* interrupt_handler(struct trapframe* tf)
         if (!trap_in_kernel(tf)) {
             schedule();
         }
-
         break;
     case IRQ_H_TIMER:
         kputs("Hypervisor timer interrupt\n");

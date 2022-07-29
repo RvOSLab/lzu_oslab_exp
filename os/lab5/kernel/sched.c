@@ -189,7 +189,7 @@ ret:
  */
 void schedule()
 {
-    fcfs_schedule();
+    rr_schedule();
 }
 
 static void fcfs_schedule()
