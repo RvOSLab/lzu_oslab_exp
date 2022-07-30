@@ -1,0 +1,13 @@
+{
+    "name": "LZU OSLab 集成开发环境",
+    "image": "mapleee/lzuoslab_env:1.0",
+    "settings": {
+      "terminal.integrated.defaultProfile.linux": "bash"
+    },
+    "extensions": [
+        "ms-vscode.cpptools",
+        "ms-ceintl.vscode-language-pack-zh-hans",
+        "ms-vscode.hexeditor",
+        "zhwu95.riscv"
+    ]
+  }
