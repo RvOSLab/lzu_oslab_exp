@@ -2,10 +2,12 @@
     "extensions": {
         "recommendations": [
             "ms-vscode.cpptools",
-            "zhwu95.riscv"
+            "zhwu95.riscv",
+            "MS-CEINTL.vscode-language-pack-zh-hans"
         ],
         "unwantedRecommendations": [
-            "ms-vscode.cpptools-extension-pack"
+            "ms-vscode.cpptools-extension-pack",
+            "ms-vscode.makefile-tools"
         ]
     },
     "folders": [
@@ -43,6 +45,9 @@
         }
     ],
     "settings": {
+        "C_Cpp.autoAddFileAssociations": true,
+        "C_Cpp.debugShortcut": false,
+        "C_Cpp.workspaceSymbols": "Just My Code",
         "C_Cpp.default.includePath": [
             "${workspaceFolder}/include",
             "${workspaceFolder}/"
