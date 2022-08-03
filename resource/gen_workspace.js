@@ -5,9 +5,13 @@ let workspaceTemplate = {
         "recommendations": [
             "ms-vscode.cpptools",
             "ms-vscode.hexeditor",
-            "zhwu95.riscv"
+            "zhwu95.riscv",
+            "MS-CEINTL.vscode-language-pack-zh-hans"
         ],
-        "unwantedRecommendations": ["ms-vscode.cpptools-extension-pack"]
+        "unwantedRecommendations": [
+            "ms-vscode.cpptools-extension-pack",
+            "ms-vscode.makefile-tools"
+        ]
     },
     "folders": render([
         {
@@ -20,6 +24,9 @@ let workspaceTemplate = {
         }
     ]),
     "settings": {
+        "C_Cpp.autoAddFileAssociations": true,
+        "C_Cpp.debugShortcut": false,
+        "C_Cpp.workspaceSymbols": "Just My Code",
         "C_Cpp.default.includePath": [
             "${workspaceFolder}/include",
             "${workspaceFolder}/"
