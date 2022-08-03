@@ -107,7 +107,7 @@ struct task_struct {
     uint64_t *pg_dir;             /**< 页目录地址 */
     union {
         struct {
-            uint64_t vaddr;         // 上次搜到了哪个虚拟地址
+            uint64_t vaddr;         // Clock 调度算法中上次搜到了哪个虚拟地址
         } clock_info;
     } swap_info;
     context context;              /**< 处理器状态，请把此成员放在 PCB 的最后 */
