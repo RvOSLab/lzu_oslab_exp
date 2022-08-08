@@ -2,13 +2,11 @@
 #include <stddef.h>
 #include <sched.h>
 #include <clock.h>
-struct usleep_queue_node usleep_queue;
+struct linked_list_node usleep_queue;
 
 // 计时队列每次只对队首节点计时，时间到后移除队首节点，对新队首节点计时
 void usleep_queue_init() {
-    usleep_queue.remaining_time = 0;
-    usleep_queue.task = NULL;
-    linked_list_init(&usleep_queue.list_node);
+    linked_list_init(&usleep_queue);
 }
 
 int64_t usleep_set(int64_t utime)
@@ -17,7 +15,7 @@ int64_t usleep_set(int64_t utime)
     disable_interrupt();
 
     struct linked_list_node *node;
-    for_each_linked_list_node(node, &usleep_queue.list_node)    // 找一个合适的队列插入位置
+    for_each_linked_list_node(node, &usleep_queue)    // 找一个合适的队列插入位置
     {
         struct usleep_queue_node *cur_node = container_of(node, struct usleep_queue_node, list_node);
         utime -= cur_node->remaining_time;  // 计算上一个节点结束计时后当前节点还需计时多久
@@ -48,8 +46,8 @@ int64_t usleep_set(int64_t utime)
 
 void usleep_handler()
 {
-    while (!linked_list_empty(&usleep_queue.list_node)) {
-        struct linked_list_node *first_list_node = linked_list_first(&usleep_queue.list_node);
+    while (!linked_list_empty(&usleep_queue)) {
+        struct linked_list_node *first_list_node = linked_list_first(&usleep_queue);
         struct usleep_queue_node *first_usleep_node = container_of(first_list_node, struct usleep_queue_node, list_node);
         first_usleep_node->remaining_time -= 10000; // 对首节点减去一次时钟中断经过的时间
         if (first_usleep_node->remaining_time <= 0) {   // 若已到时
