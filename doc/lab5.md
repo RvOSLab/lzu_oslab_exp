@@ -156,6 +156,89 @@ union task_union {
 
 在进程调度上，我们采用了分时技术，即把 CPU 的运行时间进行切分，分为若干个时间片（time slice）。每个进程运行完自己的时间片后，系统就会切换至下一个进程运行。在单核的机器上，某一个时刻只能处理一个进程的信息。但由于限制了每个进程运行的时间片在一个很短的时间内，所以在用户看来，CPU 同时处理着多个进程。本内核中，分配给进程的时间片的数量是可变的，存放于进程 PCB 中的 `counter` 变量中，单位是“系统滴答数”(ticks)。
 
+## 系统调用
+
+从用户态主动进入内核态的方式就是通过系统调用进行。它在指令集层面的实现原理是在 U 态发出 `ecall` 指令，这时 CPU 会收到一个 `CAUSE_USER_ECALL` 异常，进入内核态处理异常。
+
+系统调用可以有不定长的参数，参数可以使用寄存器传递，返回值也是用寄存器传递，具体可查看 [RISC-V ABI 规范](https://github.com/riscv-non-isa/riscv-elf-psabi-doc)，因此一个系统调用的入口函数可以写成这样：
+
+```c
+/**
+ * @brief 通过系统调用号调用对应的系统调用
+ *
+ * @param number 系统调用号
+ * @param ... 系统调用参数
+ * @note 本实现中所有系统调用都仅在失败时返回负数，但实际上极小一部分 UNIX 系统调用（如
+ *       `getpriority()`的正常返回值可能是负数的）。
+ */
+int64_t syscall(int64_t number, ...)
+{
+    va_list ap;
+    va_start(ap, number);
+    int64_t arg1 = va_arg(ap, int64_t);
+    int64_t arg2 = va_arg(ap, int64_t);
+    int64_t arg3 = va_arg(ap, int64_t);
+    int64_t arg4 = va_arg(ap, int64_t);
+    int64_t arg5 = va_arg(ap, int64_t);
+    int64_t arg6 = va_arg(ap, int64_t);
+    int64_t ret = 0;
+    va_end(ap);
+    if (number > 0 && number < NR_TASKS) {
+        /* 小心寄存器变量被覆盖 */
+        register int64_t a0 asm("a0") = arg1;
+        register int64_t a1 asm("a1") = arg2;
+        register int64_t a2 asm("a2") = arg3;
+        register int64_t a3 asm("a3") = arg4;
+        register int64_t a4 asm("a4") = arg5;
+        register int64_t a5 asm("a5") = arg6;
+        register int64_t a7 asm("a7") = number;
+        __asm__ __volatile__ ("ecall\n\t"
+                :"=r"(a0)
+                :"r" (a1), "r" (a2), "r" (a3), "r" (a4), "r" (a5), "r" (a7)
+                :"memory");
+        ret = a0;
+    } else {
+        panic("Try to call unknown system call");
+    }
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
+}
+```
+
+同样的，我们还需在中断处理程序中添加对 `CAUSE_USER_ECALL` 异常的处理，只需在原有的 `exception_handler` 函数内修改。可以直接调用一个新函数：
+
+```c
+case CAUSE_USER_ECALL:
+    return syscall_handler(tf);
+    break;
+```
+
+随后在 `syscall_handler` 函数中分派至不同的系统调用处理函数：
+
+```c
+/**
+ * @brief 系统调用处理函数
+ *
+ * 检测系统调用号，调用响应的系统调用。
+ * 当接收到错误的系统调用号时，设置 errno 为 ENOSY 并返回错误码 -1
+ */
+static struct trapframe* syscall_handler(struct trapframe* tf)
+{
+    uint64_t syscall_nr = tf->gpr.a7;
+    if (syscall_nr >= NR_syscalls) {
+        tf->gpr.a0 = -1;
+        errno = ENOSYS;
+    } else {
+        tf->gpr.a0 = syscall_table[syscall_nr](tf);
+    }
+    tf->epc += INST_LEN(tf->epc); /* 执行下一条指令 */
+    return tf;
+}
+```
+
 ## 初始化进程“0”
 
 所有用户进程都是从 0 号进程 fork 出来的，它们的 PCB 都是从进程 0 中复制而来，因此进程 0 的构建至关重要。
