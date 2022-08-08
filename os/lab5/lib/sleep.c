@@ -46,15 +46,17 @@ int64_t usleep_set(int64_t utime)
 
 void usleep_handler()
 {
-    while (!linked_list_empty(&usleep_queue)) {
+    uint64_t passed_time = 10000; // 两次中断经过的时间
+    while (!linked_list_empty(&usleep_queue)) { // 仍有等待中的进程
         struct linked_list_node *first_list_node = linked_list_first(&usleep_queue);
         struct usleep_queue_node *first_usleep_node = container_of(first_list_node, struct usleep_queue_node, list_node);
-        first_usleep_node->remaining_time -= 10000; // 对首节点减去一次时钟中断经过的时间
-        if (first_usleep_node->remaining_time <= 0) {   // 若已到时
+        if (passed_time >= first_usleep_node->remaining_time) {
+            passed_time -= first_usleep_node->remaining_time; // 进程到时
+            wake_up(&first_usleep_node->task);  // 唤醒 sleep 的进程
             linked_list_remove(first_list_node);    // 移除首节点
             // 不需要 free usleep_queue_node 结构体，结构体在那个被sleep的进程的内核栈上，唤醒返回值后直接被清除
-            wake_up(&first_usleep_node->task);  // 唤醒 sleep 的进程
         } else {
+            first_usleep_node->remaining_time -= passed_time; // 更新等待时间
             return;
         }
     }
