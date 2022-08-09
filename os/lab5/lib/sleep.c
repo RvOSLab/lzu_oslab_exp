@@ -51,14 +51,13 @@ void usleep_handler()
     while (!linked_list_empty(&usleep_queue)) { // 仍有等待中的进程
         struct linked_list_node *first_list_node = linked_list_first(&usleep_queue);
         struct usleep_queue_node *first_usleep_node = container_of(first_list_node, struct usleep_queue_node, list_node);
-        if (passed_time >= first_usleep_node->remaining_time) {
-            passed_time -= first_usleep_node->remaining_time; // 进程到时
-            first_usleep_node->remaining_time = -passed_time; // 传回计时误差
+        first_usleep_node->remaining_time -= passed_time; // 更新首节点等待时间
+        if (first_usleep_node->remaining_time <= 0) { // 首节点到时
+            passed_time = -first_usleep_node->remaining_time; // 更新经过的时间
             wake_up(&first_usleep_node->task);  // 唤醒 sleep 的进程
             linked_list_remove(first_list_node);    // 移除首节点
             // 不需要 free usleep_queue_node 结构体，结构体在那个被sleep的进程的内核栈上，唤醒返回值后直接被清除
         } else {
-            first_usleep_node->remaining_time -= passed_time; // 更新等待时间
             return;
         }
     }
